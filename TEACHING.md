@@ -1,0 +1,409 @@
+# AI 对话助手项目教学文档
+
+## 一、项目概述
+
+本项目是一个基于 Vue 3 + TypeScript 的 AI 对话助手应用，实现了类似豆包的大模型对话功能，支持会话管理、思考模式、流式响应等特性。
+
+## 二、技术栈
+
+| 技术 | 版本 | 用途 |
+|------|------|------|
+| Vue 3 | ^3.4.0 | 前端框架 |
+| TypeScript | ~5.4.0 | 类型安全 |
+| Pinia | ^2.1.0 | 状态管理 |
+| Vue Router | ^4.3.0 | 路由管理 |
+| Vite | ^5.4.0 | 构建工具 |
+| Axios | ^1.6.0 | HTTP 请求 |
+| UUID | ^9.0.0 | 唯一标识生成 |
+
+## 三、项目目录结构
+
+```
+my-chat-robot/
+├── src/
+│   ├── api/                    # API 接口层
+│   │   └── chat.ts            # 聊天 API，处理流式响应
+│   │
+│   ├── components/             # 公共组件
+│   │   ├── MessageList.vue    # 消息列表组件（含思考模式展示）
+│   │   ├── MessageInput.vue   # 消息输入组件（自适应高度）
+│   │   └── ConversationList.vue # 会话列表组件
+│   │
+│   ├── config/                 # 配置文件
+│   │   └── ai-config.ts       # 大模型配置（API地址、密钥等）
+│   │
+│   ├── router/                 # 路由配置
+│   │   └── index.ts           # 路由定义
+│   │
+│   ├── stores/                 # 状态管理
+│   │   └── chat.ts            # 聊天状态（会话、消息、思考模式）
+│   │
+│   ├── views/                  # 页面视图
+│   │   └── ChatView.vue       # 主聊天页面
+│   │
+│   ├── App.vue                # 根组件
+│   ├── main.ts                # 入口文件
+│   └── vite-env.d.ts          # 类型声明
+│
+├── .env                       # 环境变量配置（包含敏感信息）
+├── .env.example               # 环境变量示例
+├── package.json               # 项目依赖
+├── tsconfig.json              # TypeScript 配置
+├── vite.config.ts             # Vite 配置
+└── TEACHING.md                # 本教学文档
+```
+
+## 四、需求列表
+
+### 4.1 核心功能需求
+
+| 序号 | 需求描述 | 优先级 | 状态 |
+|------|----------|--------|------|
+| 1 | 实现 Vue 工程搭建 | P0 | ✅ 已完成 |
+| 2 | 实现大模型对话功能 | P0 | ✅ 已完成 |
+| 3 | 预留大模型配置信息 | P0 | ✅ 已完成 |
+| 4 | 创建会话功能 | P0 | ✅ 已完成 |
+| 5 | 切换会话功能 | P0 | ✅ 已完成 |
+| 6 | 删除会话功能 | P1 | ✅ 已完成 |
+
+### 4.2 用户体验需求
+
+| 序号 | 需求描述 | 优先级 | 状态 |
+|------|----------|--------|------|
+| 7 | 流式响应，实时显示消息 | P0 | ✅ 已完成 |
+| 8 | 思考模式开关 | P1 | ✅ 已完成 |
+| 9 | 思考过程动态展示 | P1 | ✅ 已完成 |
+| 10 | 停止生成按钮 | P1 | ✅ 已完成 |
+| 11 | 输入框自动聚焦 | P2 | ✅ 已完成 |
+| 12 | 输入框自适应高度 | P2 | ✅ 已完成 |
+| 13 | 等待响应动画 | P2 | ✅ 已完成 |
+
+## 五、功能详细说明
+
+### 5.1 大模型对话
+
+**功能描述**：用户发送消息后，实时显示大模型的响应内容。
+
+**技术要点**：
+- 使用 Fetch API 处理流式响应
+- 通过 `AbortController` 支持取消请求
+- 响应内容逐字显示，提升用户体验
+
+**关键代码**：
+```typescript
+// src/api/chat.ts
+const response = await fetch(url, {
+  method: 'POST',
+  body: JSON.stringify({ stream: true }),
+  signal: abortController?.signal
+})
+
+const reader = response.body?.getReader()
+while (true) {
+  const { done, value } = await reader.read()
+  if (done) break
+  // 解析并回调每个 chunk
+  onStream(content)
+}
+```
+
+### 5.2 会话管理
+
+**功能描述**：支持创建、切换、删除会话，每个会话独立保存消息历史。
+
+**技术要点**：
+- 使用 Pinia 管理会话状态
+- 每个会话包含唯一 ID、标题、消息列表
+- 会话标题自动取首条消息前 20 字符
+
+**数据结构**：
+```typescript
+interface Conversation {
+  id: string
+  title: string
+  messages: Message[]
+  createdAt: number
+  updatedAt: number
+}
+
+interface Message {
+  id: string
+  role: 'user' | 'assistant'
+  content: string
+  timestamp: number
+  thinking?: string[]  // 思考步骤
+}
+```
+
+### 5.3 思考模式
+
+**功能描述**：开启后，在大模型响应前显示思考过程，避免页面长停顿。
+
+**技术要点**：
+- 根据用户问题动态生成思考步骤
+- 思考步骤逐个显示，带动画效果
+- 思考完成后显示等待动画
+
+**实现逻辑**：
+```typescript
+// 1. 分析用户问题，提取关键词
+function analyzeQuestion(userMessage: string): string {
+  const target = userMessage.match(/(学校|专业|学科)/)?.[0] || '该话题'
+  const aspect = userMessage.match(/(实力|水平|排名)/)?.[0] || '相关信息'
+  return `${target}的${aspect}`
+}
+
+// 2. 生成个性化思考步骤
+function generateThinkingProcess(userMessage: string): string[] {
+  const analysis = analyzeQuestion(userMessage)
+  return [
+    `分析问题：${userMessage}`,
+    `识别这是一个评价分析类请求`,
+    `聚焦核心问题：${analysis}`,
+    // ...更多步骤
+  ]
+}
+
+// 3. 定时显示思考步骤
+const thinkingInterval = setInterval(() => {
+  if (thinkingIndex < thinkingSteps.length) {
+    assistantMessage.thinking = [..., thinkingSteps[thinkingIndex]]
+    thinkingIndex++
+  }
+}, 300)
+```
+
+### 5.4 停止生成
+
+**功能描述**：用户可随时点击停止按钮终止当前响应。
+
+**技术要点**：
+- 使用 `AbortController` 取消请求
+- 捕获 `AbortError` 异常，不显示错误提示
+- 保留已接收的部分响应内容
+
+**关键代码**：
+```typescript
+// 创建 AbortController
+abortController.value = new AbortController()
+
+// 传递给 API
+await sendChatMessage(messages, config, onStream, abortController.value)
+
+// 取消请求
+function stopGenerating() {
+  abortController.value?.abort()
+}
+```
+
+### 5.5 输入框自适应
+
+**功能描述**：输入内容超出高度时自动增高，超过最大高度显示滚动条。
+
+**技术要点**：
+- 监听 `@input` 事件实时调整高度
+- 使用 `scrollHeight` 计算实际高度
+- 超过最大高度时启用 `overflow-y: auto`
+
+**关键代码**：
+```typescript
+function resizeTextarea() {
+  const textarea = textareaRef.value
+  textarea.style.height = 'auto'
+  const scrollHeight = textarea.scrollHeight
+
+  if (scrollHeight > MAX_HEIGHT) {
+    textarea.style.height = `${MAX_HEIGHT}px`
+    textarea.style.overflowY = 'auto'
+  } else {
+    textarea.style.height = `${scrollHeight}px`
+    textarea.style.overflowY = 'hidden'
+  }
+}
+```
+
+## 六、配置说明
+
+### 6.1 环境变量配置
+
+项目使用环境变量管理大模型配置，确保敏感信息安全。
+
+**配置步骤**：
+
+1. 复制 `.env.example` 为 `.env`：
+```bash
+cp .env.example .env
+```
+
+2. 编辑 `.env` 文件，填入实际配置：
+```bash
+# API 基础地址
+VITE_API_BASE_URL=https://api.openai.com/v1
+
+# API 密钥
+VITE_API_KEY=your-api-key-here
+
+# 模型名称
+VITE_API_MODEL=gpt-3.5-turbo
+
+# 最大 Token 数
+VITE_API_MAX_TOKENS=2000
+
+# 温度参数 (0-2)
+VITE_API_TEMPERATURE=0.7
+
+# 系统提示词
+VITE_API_SYSTEM_PROMPT=你是一个有帮助的AI助手。
+```
+
+**环境变量说明**：
+
+| 变量名 | 说明 | 示例值 |
+|--------|------|--------|
+| VITE_API_BASE_URL | API 基础地址 | https://api.openai.com/v1 |
+| VITE_API_KEY | API 密钥 | sk-xxx |
+| VITE_API_MODEL | 模型名称 | gpt-3.5-turbo |
+| VITE_API_MAX_TOKENS | 最大 Token 数 | 2000 |
+| VITE_API_TEMPERATURE | 温度参数 | 0.7 |
+| VITE_API_SYSTEM_PROMPT | 系统提示词 | 你是一个有帮助的AI助手 |
+
+**安全提示**：
+- `.env` 文件包含敏感信息，不会被提交到 Git
+- `.env.example` 文件作为配置示例，可以安全提交
+
+### 6.2 配置文件说明
+
+配置文件 `src/config/ai-config.ts` 从环境变量读取配置：
+
+```typescript
+export const aiConfig: AIModelConfig = {
+  baseURL: import.meta.env.VITE_API_BASE_URL,
+  apiKey: import.meta.env.VITE_API_KEY,
+  model: import.meta.env.VITE_API_MODEL,
+  maxTokens: parseInt(import.meta.env.VITE_API_MAX_TOKENS) || 2000,
+  temperature: parseFloat(import.meta.env.VITE_API_TEMPERATURE) || 0.7,
+  systemPrompt: import.meta.env.VITE_API_SYSTEM_PROMPT
+}
+```
+
+### 6.3 思考模式配置
+
+在 `src/stores/chat.ts` 中可调整：
+
+```typescript
+const MIN_THINKING_DURATION = 1500  // 最小思考时长（毫秒）
+const THINKING_INTERVAL = 300       // 思考步骤间隔（毫秒）
+```
+
+## 七、运行项目
+
+```bash
+# 安装依赖
+npm install
+
+# 启动开发服务器
+npm run dev
+
+# 构建生产版本
+npm run build
+```
+
+## 八、学习要点
+
+### 8.1 Vue 3 Composition API
+
+本项目大量使用 Vue 3 的组合式 API：
+
+- `ref` / `reactive`：响应式数据
+- `computed`：计算属性
+- `watch`：侦听器
+- `defineProps` / `defineEmits`：组件通信
+- `defineExpose`：暴露组件方法
+
+### 8.2 Pinia 状态管理
+
+使用 Pinia 进行全局状态管理：
+
+```typescript
+export const useChatStore = defineStore('chat', () => {
+  const conversations = ref<Conversation[]>([])
+  const currentConversationId = ref<string | null>(null)
+
+  function createConversation() { /* ... */ }
+  function sendMessage(content: string) { /* ... */ }
+
+  return { conversations, currentConversationId, createConversation, sendMessage }
+})
+```
+
+### 8.3 流式响应处理
+
+使用 Fetch API + ReadableStream 处理流式数据：
+
+```typescript
+const reader = response.body?.getReader()
+const decoder = new TextDecoder()
+
+while (true) {
+  const { done, value } = await reader.read()
+  if (done) break
+
+  const chunk = decoder.decode(value)
+  // 解析 SSE 格式数据
+  const lines = chunk.split('\n')
+  for (const line of lines) {
+    if (line.startsWith('data: ')) {
+      const data = JSON.parse(line.slice(6))
+      onStream(data.choices[0]?.delta?.content)
+    }
+  }
+}
+```
+
+### 8.4 CSS 动画
+
+使用 CSS `@keyframes` 实现动画效果：
+
+```css
+@keyframes dotBounce {
+  0%, 80%, 100% {
+    transform: scale(0);
+    opacity: 0.5;
+  }
+  40% {
+    transform: scale(1);
+    opacity: 1;
+  }
+}
+
+.waiting-dots span {
+  animation: dotBounce 1.4s infinite ease-in-out both;
+}
+```
+
+### 8.5 环境变量配置
+
+使用 Vite 的环境变量功能管理敏感配置：
+
+```typescript
+// .env 文件
+VITE_API_KEY=your-api-key
+
+// 使用配置
+export const aiConfig = {
+  apiKey: import.meta.env.VITE_API_KEY
+}
+```
+
+## 九、扩展建议
+
+1. **持久化存储**：使用 `localStorage` 或 `IndexedDB` 保存会话历史
+2. **多模型支持**：添加模型选择功能，支持切换不同大模型
+3. **消息编辑**：支持编辑已发送的消息并重新生成响应
+4. **导出功能**：支持导出对话记录为 Markdown 或 PDF
+5. **主题切换**：添加深色模式支持
+
+---
+
+**文档版本**：v1.0
+**最后更新**：2026年6月20日
